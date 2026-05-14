@@ -56,7 +56,7 @@ bandwidth out = reads/sec  × avg_payload_size
 | SSE        | Server pushes to client one-way (feeds, notifications)      |
 | GraphQL    | Client needs flexible queries over complex relational data  |
 
-## 4. High Level Architecture
+## 4. High Level Design
 
 ### 4.1 Components
 
@@ -82,9 +82,9 @@ bandwidth out = reads/sec  × avg_payload_size
 - Sync  — user waits for response (reads, simple creates). Use REST.
 - Async — processing happens in background (transcode, email, fan-out). Use queue + worker.
 
-## 5. Deep Dive
+## 5. Database Design
 
-### 5.1 Database Design
+### 5.1 Database Schema
 
 - Justify DB choice (read/write heavy, time-series, relational, trade-offs)
 - Schema (Primary key, partition key, clustering key, indexes)
@@ -102,18 +102,20 @@ bandwidth out = reads/sec  × avg_payload_size
 
 **PostgreSQL scale thresholds**
 
-| QPS | Verdict |
-|---|---|
-| Writes < 5K/sec | Comfortable single node |
-| Writes 5K–10K/sec | Manageable with connection pooling (PgBouncer) + vertical scale |
-| Writes > 10K/sec | Single node ceiling; shard (CitusDB) or switch to Cassandra / MongoDB |
-| Reads < 50K/sec | Fine with read replicas + index tuning |
-| Reads 50K–100K/sec | Read replicas mandatory; Redis cache layer in front |
-| Reads > 100K/sec | PostgreSQL is not the right choice; NoSQL or cache-first |
+| QPS                | Verdict                                                               |
+|--------------------|-----------------------------------------------------------------------|
+| Writes < 5K/sec    | Comfortable single node                                               |
+| Writes 5K–10K/sec  | Manageable with connection pooling (PgBouncer) + vertical scale       |
+| Writes > 10K/sec   | Single node ceiling; shard (CitusDB) or switch to Cassandra / MongoDB |
+| Reads < 50K/sec    | Fine with read replicas + index tuning                                |
+| Reads 50K–100K/sec | Read replicas mandatory; Redis cache layer in front                   |
+| Reads > 100K/sec   | PostgreSQL is not the right choice; NoSQL or cache-first              |
 
 **PgBouncer** sits between app servers and PostgreSQL, multiplexing thousands of app connections down to a small fixed pool of real DB connections — eliminating connection overhead without changing query throughput.
 
-### 5.2 Scalability
+## 6. Deep Dive
+
+### 6.1 Scalability
 
 - **Caching** — what to cache, TTL, eviction policy (LRU/LFU), cache-aside vs write-through
 - **DB Sharding** — shard key must distribute load evenly; bad key causes hot partition
@@ -128,7 +130,7 @@ bandwidth out = reads/sec  × avg_payload_size
 | Apache Ignite      | Dataset too large for a single Redis node — distributed cache across a cluster, supports SQL queries on cached data |
 | CDN                | Static assets, images, videos — cache at edge near the user, offload bandwidth from app servers                     |
 
-### 5.3 Async & Queue Design
+### 6.2 Async & Queue Design
 
 Use a queue when:
 - Processing is too slow for a synchronous response
@@ -147,7 +149,7 @@ Use a queue when:
 - **Retention** — Kafka keeps messages for days (replayable); SQS deletes on consume
 - **Exactly-once** is hard — use at-least-once delivery + idempotency key at consumer for effective exactly-once
 
-### 5.4 Reliability & Failure Handling
+### 6.3 Reliability & Failure Handling
 
 | Failure              | Pattern                                                              |
 |----------------------|----------------------------------------------------------------------|
@@ -158,7 +160,7 @@ Use a queue when:
 | Data loss            | Replication factor 3, quorum writes (W=2, R=2)                     |
 | Network timeout      | Timeouts + fallback (cached result, degraded response)              |
 
-## 6. Wrap Up
+## 7. Wrap Up
 
 - **Bottlenecks** — what is the weakest point and how would you fix it?
 - **Trade-offs** — "I chose X over Y, accepting the cost of Z"

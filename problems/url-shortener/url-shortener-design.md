@@ -150,7 +150,7 @@ Handles all read operations -- billions of GET requests per day. Stateless and h
 5. Return an HTTP 302 redirect to the original URL
 6. Emit a click event asynchronously for analytics
 
-## 5. Database
+## 5. Database Design
 
 ### 5.1 Database Choice
 
@@ -295,3 +295,39 @@ The redirect must remain fast, so click recording is **asynchronous** -- the red
 | **Direct increment**  | `INCR click_count` in Redis or DB on each redirect                                  | Low-scale systems (< 1K QPS)                             |
 | **Buffered counting** | Accumulate clicks in memory/Redis, flush to DB periodically (e.g., every 30s)       | Medium-scale (1K-50K QPS)                                |
 | **Event streaming**   | Emit click events to Kafka; a consumer aggregates and writes to the analytics store | High-scale systems needing real-time analytics pipelines |
+
+## 7. Wrap Up
+
+### 7.1 Key Decisions
+
+| Decision              | Choice                                    | Why                                                  |
+|-----------------------|-------------------------------------------|------------------------------------------------------|
+| Database              | Cassandra                                 | Billions of rows, simple key-value lookups, no JOINs |
+| Cache                 | Redis                                     | 100:1 read-heavy; cache-aside for hot short codes    |
+| Short code generation | Snowflake-style (preferred)               | Scalable, no collisions, no central bottleneck       |
+| Redirect code         | 302 Found                                 | Ensures every click hits the server for analytics    |
+| Expiration            | Hybrid (passive check + periodic cleanup) | Real-time accuracy + bounded storage growth          |
+| Click counting        | Async via Kafka                           | Keeps redirect latency low                           |
+
+### 7.2 Scalability
+
+- Redirection Service is stateless; scale horizontally behind a load balancer
+- Cassandra scales linearly with added nodes; `short_code` as partition key distributes evenly
+- Redis cache absorbs ~80% of read traffic, keeping DB load manageable
+- Kafka decouples click analytics from the redirect path
+
+### 7.3 Availability
+
+- Cassandra RF=3 across AZs; tolerates 1 node failure with quorum reads/writes
+- Redis cache serves stale data gracefully if the DB is briefly unavailable
+- Stateless services allow instant failover via load balancer health checks
+
+### 7.4 Monitoring
+
+| Metric                            | Why It Matters                 |
+|-----------------------------------|--------------------------------|
+| Redirect latency (p50, p95, p99)  | Core user experience           |
+| Cache hit rate                    | Drop means increased DB load   |
+| Short code collision rate         | Indicates ID generation health |
+| Kafka consumer lag (click events) | Analytics pipeline backlog     |
+| Expired link scan duration        | Background job health          |

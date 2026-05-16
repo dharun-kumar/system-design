@@ -376,7 +376,7 @@ When a message arrives, it is pushed to every connected device simultaneously. E
 | Retry duplicate                 | `client_message_id` dedup at the server                                                  |
 | Push notification failure       | Retry with backoff; if user reconnects first, Kafka delivers directly                    |
 
-### 6.4  Security
+### 6.4 Security
 
 **Authentication:**
 - Phone number + OTP via SMS
@@ -398,7 +398,7 @@ When a message arrives, it is pushed to every connected device simultaneously. E
 
 ## 7. Wrap Up
 
-**Key decisions:**
+### 7.1 Key Decisions
 
 | Decision           | Choice                                | Why                                        |
 |--------------------|---------------------------------------|--------------------------------------------|
@@ -414,9 +414,26 @@ When a message arrives, it is pushed to every connected device simultaneously. E
 | Pagination         | Cursor (TimeUUID)                     | O(log n) vs O(n) offset                    |
 | Load balancing     | Consistent hash on `user_id`          | Stable routing across IP changes           |
 
-**Bottlenecks and mitigations:**
-- Chat Server connection count: auto-scale on CPU/connections, consistent hash redistributes
-- Group fanout spikes: Kafka worker pool absorbs bursts
-- Outbound bandwidth (6x inbound): CDN handles media, Kafka workers spread fanout
+### 7.2 Scalability
 
-**Monitoring:** message delivery latency p99, WebSocket connections per server, Kafka consumer lag, Cassandra write error rate, Session Service cache hit rate.
+- Chat Servers scale horizontally; consistent hash redistributes ~1/N users per added node
+- Kafka worker pool absorbs group fanout spikes
+- CDN handles media bandwidth (outbound is 6x inbound due to group fanout)
+- Auto-scale trigger: CPU > 70% or connections > 40K per Chat Server
+
+### 7.3 Availability
+
+- Cassandra RF=3 across AZs; quorum writes stay durable with 1 replica down
+- Redis TTL handles all disconnect modes uniformly (no explicit cleanup)
+- Persist-before-deliver ensures no message loss even if routing fails
+- Reconciliation job catches any messages stuck in `sent` state
+
+### 7.4 Monitoring
+
+| Metric                                  | Why It Matters                        |
+|-----------------------------------------|---------------------------------------|
+| Message delivery latency (p99)          | Core user experience                  |
+| WebSocket connections per server        | Capacity planning, auto-scale trigger |
+| Kafka consumer lag (`offline-messages`) | Indicates delivery backlog            |
+| Cassandra write error rate              | Durability risk                       |
+| Session Service cache hit rate          | Routing efficiency                    |

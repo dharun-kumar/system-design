@@ -283,7 +283,7 @@ In-memory runtime state:
 | `created_at`              | TIMESTAMP    | NOT NULL                        | Record creation time                                  |
 | `updated_at`              | TIMESTAMP    | NOT NULL                        | Last modification time                                |
 
-### 6. Deep Dive
+## 6. Deep Dive
 
 ### 6.1 LB Algorithms
 
@@ -306,7 +306,6 @@ Sticky sessions ensure subsequent requests from the same client are routed to th
 | **Cookie-Based**   | On first request, LB picks a server and sets a cookie (e.g., `X-LB-Server=backend-3`). Subsequent requests include this cookie, and the LB reads it to route directly | Survives NAT; per-user granularity | Requires L7; adds a Set-Cookie header on first response                    |
 
 Cookie-based is preferred in most production setups because it is unaffected by NAT and does not remap when the server count changes.
-
 
 ### 6.3 L4 vs L7 Load Balancing
 
@@ -331,9 +330,34 @@ SSL/TLS termination at the load balancer provides three benefits:
 
 Traffic between the LB and backends typically travels over a private network. If encryption is still required on this internal leg, the LB can re-encrypt using a lighter internal certificate (known as SSL bridging).
 
-## 6.5 Monitoring and Observability
+## 7. Wrap Up
 
-A production load balancer should expose metrics for alerting and capacity planning.
+### 7.1 Key Decisions
+
+| Decision              | Choice                                           | Why                                                       |
+|-----------------------|--------------------------------------------------|-----------------------------------------------------------|
+| Data-plane storage    | In-memory                                        | Every nanosecond counts at 1M+ RPS                        |
+| Control-plane storage | Database (PostgreSQL)                            | Management API needs durable config                       |
+| Health check strategy | Probe with thresholds (3 failures / 3 successes) | Tolerates transient blips without flapping                |
+| HA pattern            | Active-Active preferred                          | Full utilization of all nodes; no idle standby            |
+| Sticky sessions       | Cookie-based preferred                           | Unaffected by NAT; no shared state needed across LB nodes |
+| SSL termination       | At the LB                                        | CPU offloading, request visibility, session caching       |
+
+### 7.2 Scalability
+
+- Active-Active with multiple LB nodes behind DNS round-robin or Anycast
+- Consistent hashing minimizes remapping when nodes are added/removed
+- Connection pool manager reduces TCP handshake overhead under high throughput
+- Multiple backend pools allow independent scaling per traffic type (API vs static assets)
+
+### 7.3 Availability
+
+- Active-Passive failover via VIP + Gratuitous ARP (1-3s failover)
+- Active-Active eliminates single point of failure entirely
+- Graceful draining on server removal prevents dropped connections
+- Health monitor with configurable thresholds prevents flapping
+
+### 7.4 Monitoring
 
 | Metric                      | Description                                   |
 |-----------------------------|-----------------------------------------------|
@@ -344,5 +368,3 @@ A production load balancer should expose metrics for alerting and capacity plann
 | Backend health status       | Healthy/unhealthy/draining state per server   |
 | Connection pool utilization | Borrowed vs. idle connections per backend     |
 | Bandwidth in/out            | Bytes per second inbound and outbound         |
-
-Logs should capture per-request metadata: client IP, selected backend, response status, and latency. These feed into dashboards and anomaly detection.
